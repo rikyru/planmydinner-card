@@ -11,8 +11,8 @@ Mostra:
 
 ## Requisiti
 
-- [Plan My Dinner Add-on](https://github.com/rikyru/planmydinner) installato e configurato
-- Integrazione `planmydinner` attiva in Home Assistant (sensori e servizi presenti)
+- [Plan My Dinner](https://github.com/rikyru/planmydinner) — add-on + integrazione HA installati e configurati
+- Sensori `sensor.plan_my_dinner_*` presenti in Home Assistant
 
 ## Installazione tramite HACS
 
