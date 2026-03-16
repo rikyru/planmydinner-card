@@ -3,8 +3,10 @@
 Lovelace custom card per [Plan My Dinner](https://github.com/rikyru/planmydinner).
 
 Mostra:
-- **Pranzo e cena di oggi** con nome del piatto
-- **Strip settimanale** — 7 punti colorati (verde = pianificato, blu = oggi, grigio = passato)
+- **Navigazione giornaliera** — frecce ‹ › per scorrere i 7 giorni della settimana
+- **Pranzo e cena del giorno selezionato** — click sul pasto per cambiare ricetta
+- **Popup cambio ricetta** — carica 5 alternative dal backend e le applica al piano con un tap
+- **Strip settimanale** — 7 punti colorati cliccabili (verde = pianificato, blu = oggi, grigio = passato)
 - **Lista spesa** — contatore articoli + anteprima primi 5
 - **Dispensa** — contatore articoli
 - **Pulsanti azione** — Genera piano (algoritmo), Genera con AI, Apri UI
