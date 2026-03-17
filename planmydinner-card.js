@@ -76,6 +76,7 @@ class PlanMyDinnerCard extends HTMLElement {
       show_shopping: true,
       show_actions: true,
       compact: false,
+      web_url: '',   // override the web_ui sensor — e.g. "https://planmydinner.example.com"
       ...config,
     };
     this._render();
@@ -123,40 +124,57 @@ class PlanMyDinnerCard extends HTMLElement {
   }
 
   _webUrl() {
+    // Config override takes priority (supports external URLs with auth, e.g. CF Zero Trust)
+    if (this._config?.web_url) return this._config.web_url.replace(/\/$/, '');
     const s = this._findSensor('web_ui');
     return s ? s.state.replace(/\/$/, '') : null;
   }
 
   // ── API helpers ────────────────────────────────────────────────────────────
 
+  _fetchOpts() {
+    // Include credentials so Cloudflare Zero Trust cookies are sent cross-origin
+    return { credentials: 'include' };
+  }
+
   async _getProfiles() {
     if (this._profiles) return this._profiles;
     const base = this._webUrl();
     if (!base) return [];
-    const r = await fetch(`${base}/profiles/`);
-    if (!r.ok) return [];
-    this._profiles = await r.json();
-    return this._profiles;
+    try {
+      const r = await fetch(`${base}/profiles/`, this._fetchOpts());
+      if (!r.ok) return [];
+      this._profiles = await r.json();
+    } catch {
+      return [];
+    }
+    return this._profiles || [];
   }
 
   async _openPopup(date, mealType) {
     const base = this._webUrl();
-    if (!base) return;
+    if (!base) {
+      alert('Configura web_url nella card (es. https://planmydinner.example.com)');
+      return;
+    }
     this._popup = { date, mealType, loading: true, options: [], applying: false, error: null };
     this._render();
 
     try {
       const profiles = await this._getProfiles();
-      if (profiles.length < 1) throw new Error('Nessun profilo trovato.');
+      if (profiles.length < 1) throw new Error('Nessun profilo trovato. Verifica che web_url sia raggiungibile.');
       const pA = profiles[0].id;
       const pB = profiles[1]?.id || '';
       const params = new URLSearchParams({ profile_id_A: pA, profile_id_B: pB, meal_type: mealType, current_date: date });
-      const r = await fetch(`${base}/planner/change-recipe?${params}`, { method: 'POST' });
-      if (!r.ok) throw new Error(`Errore API: ${r.status}`);
+      const r = await fetch(`${base}/planner/change-recipe?${params}`, { method: 'POST', ...this._fetchOpts() });
+      if (!r.ok) throw new Error(`Errore API ${r.status}: ${await r.text().then(t => t.slice(0,120))}`);
       const options = await r.json();
       this._popup = { date, mealType, loading: false, options, applying: false, error: null, pA, pB };
     } catch (e) {
-      this._popup = { date, mealType, loading: false, options: [], applying: false, error: e.message, pA: '', pB: '' };
+      const msg = e.name === 'TypeError'
+        ? `Impossibile raggiungere ${base}. Verifica web_url e che il server sia accessibile.`
+        : e.message;
+      this._popup = { date, mealType, loading: false, options: [], applying: false, error: msg, pA: '', pB: '' };
     }
     this._render();
   }
@@ -169,12 +187,11 @@ class PlanMyDinnerCard extends HTMLElement {
     this._render();
     try {
       const params = new URLSearchParams({ profile_id_A: pA, profile_id_B: pB, meal_type: mealType, current_date: date, recipe_id: recipeId });
-      const r = await fetch(`${base}/planner/apply-recipe-option?${params}`, { method: 'POST' });
-      if (!r.ok) throw new Error(`Errore API: ${r.status}`);
-      // Invalidate profiles cache is not needed; just close popup and refresh
+      const r = await fetch(`${base}/planner/apply-recipe-option?${params}`, { method: 'POST', ...this._fetchOpts() });
+      if (!r.ok) throw new Error(`Errore API ${r.status}`);
       this._popup = null;
       // Force HA coordinator refresh via service call (best effort)
-      try { await this._hass.callService('homeassistant', 'update_entity', { entity_id: `sensor.plan_my_dinner_week` }); } catch {}
+      try { await this._hass.callService('homeassistant', 'update_entity', { entity_id: 'sensor.plan_my_dinner_week' }); } catch {}
     } catch (e) {
       this._popup = { ...this._popup, applying: false, error: e.message };
     }
@@ -274,7 +291,6 @@ class PlanMyDinnerCard extends HTMLElement {
           <button class="btn btn-ai" ${dis} id="btn-ai">
             ${this._generating ? '⏳ Generando…' : '🤖 AI'}
           </button>
-          ${webUrl ? `<a class="btn btn-open" href="${webUrl}/ui/" target="_blank">↗ Apri UI</a>` : ''}
         </div>`;
     }
 
@@ -593,12 +609,18 @@ class PlanMyDinnerCardEditor extends HTMLElement {
                style="width:16px;height:16px;cursor:pointer" />
         <label style="font-size:14px;cursor:pointer">${label}</label>
       </div>`;
+    const field = (label, key, placeholder = '') => `
+      <div style="margin-bottom:12px">
+        <label style="display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;color:#666">${label}</label>
+        <input data-key="${key}" type="text" value="${c[key] ?? ''}" placeholder="${placeholder}"
+               style="width:100%;padding:7px 10px;border:1px solid #ccc;border-radius:6px;font-size:14px;box-sizing:border-box" />
+      </div>`;
     this.innerHTML = `
       <div style="padding:16px">
-        <div style="margin-bottom:12px">
-          <label style="display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;color:#666">Titolo</label>
-          <input data-key="title" type="text" value="${c.title ?? 'Plan My Dinner'}"
-                 style="width:100%;padding:7px 10px;border:1px solid #ccc;border-radius:6px;font-size:14px;box-sizing:border-box" />
+        ${field('Titolo', 'title', 'Plan My Dinner')}
+        ${field('URL Web UI (opzionale)', 'web_url', 'https://planmydinner.example.com')}
+        <div style="font-size:11px;color:#888;margin-top:-8px;margin-bottom:12px">
+          Lascia vuoto per usare il sensore HA. Imposta l'URL completo per accessi esterni o Cloudflare Zero Trust.
         </div>
         ${toggle('Mostra strip settimanale', 'show_week')}
         ${toggle('Mostra lista spesa e dispensa', 'show_shopping')}
