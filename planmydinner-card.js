@@ -126,16 +126,8 @@ class PlanMyDinnerCard extends HTMLElement {
   _webUrl() {
     // 1. Config override takes priority (supports external URLs with auth, e.g. CF Zero Trust)
     if (this._config?.web_url) return this._config.web_url.replace(/\/$/, '');
-    // 2. Ingress path from week sensor — accessible through HA's reverse proxy (works externally)
-    const ingressPath = this._findSensor('week')?.attributes?.ingress_path;
-    if (ingressPath) return window.location.origin + ingressPath.replace(/\/$/, '');
-    // 3. Fallback to direct host:port (only works on the local network)
-    const s = this._findSensor('web_ui');
-    return s ? s.state.replace(/\/$/, '') : null;
-  }
-
-  _isIngressUrl(url) {
-    return url && url.startsWith(window.location.origin) && url.includes('/api/hassio_ingress/');
+    // 2. HA HTTP proxy — always accessible through HA's external URL, requires HA auth
+    return window.location.origin + '/api/planmydinner';
   }
 
   // ── API helpers ────────────────────────────────────────────────────────────
@@ -146,8 +138,8 @@ class PlanMyDinnerCard extends HTMLElement {
   }
 
   _apiFetch(url, opts = {}) {
-    // Use hass.fetchWithAuth for ingress URLs (adds HA bearer token — required externally)
-    if (this._hass && this._isIngressUrl(url)) {
+    // Use hass.fetchWithAuth for HA-relative URLs (adds bearer token — required for HA proxy)
+    if (this._hass && url.startsWith(window.location.origin + '/api/')) {
       return this._hass.fetchWithAuth(url, opts);
     }
     return fetch(url, { ...this._fetchOpts(), ...opts });
