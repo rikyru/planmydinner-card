@@ -139,6 +139,17 @@ class PlanMyDinnerCard extends HTMLElement {
 
   async _getProfiles() {
     if (this._profiles) return this._profiles;
+
+    // Prefer reading profile IDs from the week sensor attributes (no browser→backend call needed)
+    const weekSensor = this._findSensor('week');
+    const pA = weekSensor?.attributes?.profile_id_A;
+    const pB = weekSensor?.attributes?.profile_id_B;
+    if (pA) {
+      this._profiles = [{ id: pA }, ...(pB ? [{ id: pB }] : [])];
+      return this._profiles;
+    }
+
+    // Fallback: fetch directly from backend
     const base = this._webUrl();
     if (!base) return [];
     try {
