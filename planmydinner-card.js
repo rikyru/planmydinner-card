@@ -124,10 +124,18 @@ class PlanMyDinnerCard extends HTMLElement {
   }
 
   _webUrl() {
-    // Config override takes priority (supports external URLs with auth, e.g. CF Zero Trust)
+    // 1. Config override takes priority (supports external URLs with auth, e.g. CF Zero Trust)
     if (this._config?.web_url) return this._config.web_url.replace(/\/$/, '');
+    // 2. Ingress path from week sensor — accessible through HA's reverse proxy (works externally)
+    const ingressPath = this._findSensor('week')?.attributes?.ingress_path;
+    if (ingressPath) return window.location.origin + ingressPath.replace(/\/$/, '');
+    // 3. Fallback to direct host:port (only works on the local network)
     const s = this._findSensor('web_ui');
     return s ? s.state.replace(/\/$/, '') : null;
+  }
+
+  _isIngressUrl(url) {
+    return url && url.startsWith(window.location.origin) && url.includes('/api/hassio_ingress/');
   }
 
   // ── API helpers ────────────────────────────────────────────────────────────
@@ -135,6 +143,14 @@ class PlanMyDinnerCard extends HTMLElement {
   _fetchOpts() {
     // Include credentials so Cloudflare Zero Trust cookies are sent cross-origin
     return { credentials: 'include' };
+  }
+
+  _apiFetch(url, opts = {}) {
+    // Use hass.fetchWithAuth for ingress URLs (adds HA bearer token — required externally)
+    if (this._hass && this._isIngressUrl(url)) {
+      return this._hass.fetchWithAuth(url, opts);
+    }
+    return fetch(url, { ...this._fetchOpts(), ...opts });
   }
 
   async _getProfiles() {
@@ -153,7 +169,7 @@ class PlanMyDinnerCard extends HTMLElement {
     const base = this._webUrl();
     if (!base) return [];
     try {
-      const r = await fetch(`${base}/profiles/`, this._fetchOpts());
+      const r = await this._apiFetch(`${base}/profiles/`);
       if (!r.ok) return [];
       this._profiles = await r.json();
     } catch {
@@ -177,7 +193,7 @@ class PlanMyDinnerCard extends HTMLElement {
       const pA = profiles[0].id;
       const pB = profiles[1]?.id || '';
       const params = new URLSearchParams({ profile_id_A: pA, profile_id_B: pB, meal_type: mealType, current_date: date });
-      const r = await fetch(`${base}/planner/change-recipe?${params}`, { method: 'POST', ...this._fetchOpts() });
+      const r = await this._apiFetch(`${base}/planner/change-recipe?${params}`, { method: 'POST' });
       if (!r.ok) throw new Error(`Errore API ${r.status}: ${await r.text().then(t => t.slice(0,120))}`);
       const options = await r.json();
       this._popup = { date, mealType, loading: false, options, applying: false, error: null, pA, pB };
@@ -198,7 +214,7 @@ class PlanMyDinnerCard extends HTMLElement {
     this._render();
     try {
       const params = new URLSearchParams({ profile_id_A: pA, profile_id_B: pB, meal_type: mealType, current_date: date, recipe_id: recipeId });
-      const r = await fetch(`${base}/planner/apply-recipe-option?${params}`, { method: 'POST', ...this._fetchOpts() });
+      const r = await this._apiFetch(`${base}/planner/apply-recipe-option?${params}`, { method: 'POST' });
       if (!r.ok) throw new Error(`Errore API ${r.status}`);
       this._popup = null;
       // Force HA coordinator refresh via service call (best effort)
